@@ -28,7 +28,8 @@ from langgraph.prebuilt import tools_condition, ToolNode
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from api_openai import get_available_models
-from tools_etl import check_adk_directories, check_wpr
+from tools_etl import check_required_tools, export_ppm_data
+from tools_general import add_numbers, is_even, check_weather
 
 # Define AgentState class for LangGraph
 # It should have message history
@@ -70,45 +71,11 @@ def openai_chat_node(
     
     return {'messages': response}
 
-
-# Create a simple function that adds two numbers and returns the result
-def add_numbers(
-    num1: int,
-    num2: int
-) -> int:
-    """
-    Adds two numbers and returns the result
-    """
-    LOGGER.info(f'Adding {num1} and {num2}')
-    return num1 + num2
-
-# Create a simple function that checks if a number is even and returns True or False
-def is_even(
-    num: int
-) -> bool:
-    """
-    Checks if a number is even and returns True or False
-    """
-    LOGGER.info(f'Checking if {num} is even')
-    return num % 2 == 0
-
-# Create a simple function that takes a city name and checks the weather
-def check_weather(
-    city: str
-) -> str:
-    """
-    Checks the weather for a given city
-    """
-    LOGGER.info(f'Checking weather for {city}')
-    return f'{city} has sunny weather'
-
 # Create a list of tools
 tools = [
     add_numbers,
     is_even,
-    check_weather,
-    check_adk_directories,
-    check_wpr
+    check_weather
 ]
 
 
@@ -122,6 +89,8 @@ def main():
     # Load API keys from .env file
     load_dotenv()
 
+    # 
+
     # Create graph
     graph_builder.add_node('openai_chat_node', openai_chat_node)
     graph_builder.add_node('tools', ToolNode(tools))
@@ -131,10 +100,16 @@ def main():
     graph = graph_builder.compile()
 
     # Test graph and log final state
-    test_message = HumanMessage(content='Does my laptop support parsing ETL files?')
-    final_state = graph.invoke({'messages': [test_message]})
+    # test_message = HumanMessage(content='Does my laptop support parsing ETL files?')
+    # final_state = graph.invoke({'messages': [test_message]})
 
-    LOGGER.debug(f'Final state: {final_state}')
+    # LOGGER.debug(f'Final state: {final_state}')
+
+    # Test check_required_tools tool
+    check_required_tools()
+
+    # Test export_ppm_data tool
+    # export_ppm_data('C:\\Users\\scott\\Downloads\\agent_study.etl')
 
 
 
