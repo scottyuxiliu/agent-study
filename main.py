@@ -28,7 +28,7 @@ from langgraph.prebuilt import tools_condition, ToolNode
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from api_openai import get_available_models
-from tools_etl import check_required_tools, export_ppm_data
+from tools_etl import check_required_tools, export_ppm_data, export_processes_data, export_process_details
 from tools_general import add_numbers, is_even, check_weather
 
 # Define AgentState class for LangGraph
@@ -106,10 +106,16 @@ def main():
     # LOGGER.debug(f'Final state: {final_state}')
 
     # Test check_required_tools tool
-    check_required_tools()
+    # check_required_tools()
 
     # Test export_ppm_data tool
-    # export_ppm_data('C:\\Users\\scott\\Downloads\\agent_study.etl')
+    export_ppm_data('C:\\Users\\scott\\Downloads\\agent_study.etl')
+
+    # Test export_processes_data tool
+    # export_processes_data('C:\\Users\\scott\\Downloads\\agent_study.etl')
+
+    # Test export_process_details tool
+    # export_process_details()
 
 
 
