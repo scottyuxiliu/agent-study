@@ -48,17 +48,13 @@ class LogSpinner:
         if self.thread:
             self.thread.join()
 
-
-# Create a tool to check if system has all required tools to parse ETL files. This includes the following:
-# - wpr.exe
-# - wpaexporter.exe
-# @tool # Comment out this line for now to disable the tool
+@tool
 def check_required_tools() -> bool:
     """
     This tool checks if system has all required tools to parse ETL files. This includes the following:
-    - wpr.exe
-    - wpaexporter.exe
-    - etlwatch.exe
+    - wpr.exe: Windows Performance Recorder. This tool is used to record Event Log Traces (ETL) files.
+    - wpaexporter.exe: Windows Performance Analyzer Exporter. This tool is used to export Event Log Traces (ETL) files to CSV format.
+    - etlwatch.exe: ETLWatch. This tool is used to export Event Log Traces (ETL) files to CSV format.
 
     Returns:
         bool: True if all required tools are present, False otherwise
@@ -122,37 +118,40 @@ def _check_wpaexporter() -> bool:
     return False
 
 
-# Define a private function to check if:
-# - etlwatch folder exists
-# - Inside etlwatch folder, check if there are folders named like "vX.X.X"
-# - Inside the folder with latest version, check if there is a file named "ETLWatch.exe"
-# - If all conditions are met, return True, else return False
-def _check_etlwatch() -> bool:
+def _get_etlwatch_exe_path() -> str:
     """
-    This private function checks if:
-    - etlwatch folder exists
-    - Inside etlwatch folder, check if there are folders named like "vX.X.X"
-    - Inside the folder with latest version, check if there is a file named "ETLWatch.exe"
-    - If all conditions are met, return True, else return False
+    Private helper to find the latest version of ETLWatch.exe in the etlwatch folder.
+    Returns the absolute path to the executable if found, otherwise an empty string.
     """
-    etlwatch_path = ".\\etlwatch" # etlwatch folder is in the same directory as this script
-    if not os.path.exists(etlwatch_path):
-        LOGGER.error("etlwatch folder not found")
-        return False
+    etlwatch_root = os.path.join(os.getcwd(), "etlwatch")
+    if not os.path.exists(etlwatch_root):
+        LOGGER.error(f"etlwatch folder not found at {etlwatch_root}")
+        return ""
     
-    version_folders = [f for f in os.listdir(etlwatch_path) if os.path.isdir(os.path.join(etlwatch_path, f)) and f.startswith("v")]
+    version_folders = [f for f in os.listdir(etlwatch_root) if os.path.isdir(os.path.join(etlwatch_root, f)) and f.startswith("v")]
     if not version_folders:
         LOGGER.error("No version folders found in etlwatch folder")
-        return False
+        return ""
     
     latest_version_folder = max(version_folders, key=lambda x: x[1:])
-    etlwatch_path = os.path.join(etlwatch_path, latest_version_folder)
-    if not os.path.exists(os.path.join(etlwatch_path, "ETLWatch.exe")):
-        LOGGER.error(f"ETLWatch.exe not found in etlwatch folder {etlwatch_path}")
-        return False
+    etlwatch_exe = os.path.join(etlwatch_root, latest_version_folder, "ETLWatch.exe")
     
-    LOGGER.info(f"ETLWatch.exe found in {etlwatch_path}")
-    return True
+    if not os.path.exists(etlwatch_exe):
+        LOGGER.error(f"ETLWatch.exe not found at {etlwatch_exe}")
+        return ""
+    
+    return etlwatch_exe
+
+
+def _check_etlwatch() -> bool:
+    """
+    This private function checks if ETLWatch.exe exists in the expected location.
+    """
+    exe_path = _get_etlwatch_exe_path()
+    if exe_path:
+        LOGGER.info(f"ETLWatch.exe found in {exe_path}")
+        return True
+    return False
 
 
 # Create a tool that uses wpaexporter.exe to export PPM settings and their values
@@ -318,11 +317,90 @@ def _wpaexporter_etl_to_csv(
         return False
 
 
-# Create a function that uses ETLWatch to export processes data from ETL file
-def export_processes_data(etl_file_path: Annotated[str, 'ETL file path']) -> tuple[list[dict], list[dict], list[dict]]:
+def _etlwatch_etl_to_csv(etl_file_path: str) -> bool:
     """
-    Use ETLWatch to export processes data from ETL file and parse the resulting stats report.
-    Returns a tuple of three lists of dictionaries, where the first list is the clock interrupts table, the second list is the process lifetime table, and the third list is the CPU lifetime table.
+    Use ETLWatch.exe to export process data from an ETL file.
+    Moves generated 'Stats.csv' and 'ThreadQosTimeLine.csv' to the 'etlwatch_csv' folder.
+    """
+    if not os.path.exists(etl_file_path):
+        LOGGER.error(f"ETL file not found at: {etl_file_path}")
+        return False
+
+    etlwatch_exe = _get_etlwatch_exe_path()
+
+    if not etlwatch_exe:
+        return False
+
+    output_folder = os.path.join(os.getcwd(), "etlwatch_csv")
+    if not os.path.exists(output_folder):
+        LOGGER.info(f"Creating output folder: {output_folder}")
+        os.makedirs(output_folder)
+
+    command = [
+        etlwatch_exe,
+        "-i", etl_file_path,
+        "-a", "process"
+    ]
+
+    try:
+        LOGGER.info(f"Running ETLWatch on: {etl_file_path}")
+        with LogSpinner("Running ETLWatch analysis ..."):
+            # Set check=False because ETLWatch might exit with an error code even if it generates files successfully
+            result = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        if result.returncode != 0:
+            LOGGER.warning(f"ETLWatch exited with code {result.returncode}. Checking if files were still generated...")
+            LOGGER.debug(f"ETLWatch Stderr: {result.stderr.decode('utf-8')}")
+
+        # Files are generated in the current working directory
+        files_to_move = ["Stats.csv", "ThreadQosTimeLine.csv"]
+        valid_files = 0
+        
+        for file_name in files_to_move:
+            source = os.path.join(os.getcwd(), file_name)
+            # Check if file exists and is not empty
+            if os.path.exists(source) and os.path.getsize(source) > 0:
+                destination = os.path.join(output_folder, f"ETLWatchReport_{file_name}")
+                LOGGER.info(f"Moving {file_name} to {destination}")
+                shutil.move(source, destination)
+                valid_files += 1
+            else:
+                LOGGER.warning(f"File {file_name} was either not found or is empty after ETLWatch run.")
+
+        # Return True only if both required files were successfully generated and moved
+        if valid_files == len(files_to_move):
+            LOGGER.info("ETLWatch analysis completed and files were processed.")
+            return True
+        else:
+            LOGGER.error(f"ETLWatch failed to generate one or more required files. (Found {valid_files}/{len(files_to_move)})")
+            return False
+
+    except Exception as e:
+        LOGGER.error(f"An error occurred during ETLWatch processing: {e}")
+        return False
+
+
+@tool
+def export_processes_data(
+    etl_file_path: Annotated[str, 'ETL file path'],
+    table_name: Annotated[str, 'Table name to return: "Clock interrupts", "Process lifetime", "CPU lifetime", or "all". Defaults to "all".'] = "all"
+    ) -> list[dict] | tuple[list[dict], list[dict], list[dict]]:
+    """
+    This function uses ETLWatch to export processes data from ETL file and parse the resulting stats report. It extracts the following tables from the stats report:
+    - Clock interrupts table: Shows the number of clock interrupts for each CPU core.
+    - Process lifetime table: Shows the lifetime of each process at each Quality of Service (QoS) level. For details on QoS levels, see https://learn.microsoft.com/en-us/windows-hardware/customize/power-settings/configure-processor-power-management-options
+    - CPU lifetime table: Shows the lifetime of each CPU at each QoS level. For details on QoS levels, see https://learn.microsoft.com/en-us/windows-hardware/customize/power-settings/configure-processor-power-management-options
+
+    This function might take a while to run if the ETL file is large.
+
+    Args:
+        etl_file_path (str): Path to the ETL file to be processed.
+        table_name (str): Table name to return: "Clock interrupts", "Process lifetime", "CPU lifetime", or "all". Defaults to "all".
+
+    Returns:
+        tuple[list[dict], list[dict], list[dict]] or list[dict]: 
+            - If table_name is "all", it returns a tuple of three lists of dictionaries (clock_interrupts, process_lifetime, cpu_lifetime).
+            - Otherwise, it returns only the requested list of dictionaries.
     """
 
     col_name_map = {
@@ -336,35 +414,58 @@ def export_processes_data(etl_file_path: Annotated[str, 'ETL file path']) -> tup
         "UtilityQos (ms)": "Utility QoS (ms)"
     }
 
-    # Note: In a full implementation, we'd run ETLWatch.exe here.
-    # For now, we are parsing the file the user provided.
+    # Run ETLWatch to export the data to CSV files
+    if not _etlwatch_etl_to_csv(etl_file_path):
+        LOGGER.error("Failed to export data from ETL file using ETLWatch.")
+        if table_name == "all":
+            return [], [], []
+        return []
+
     stats_file = os.path.join("etlwatch_csv", "ETLWatchReport_Stats.csv")
     
     if not os.path.exists(stats_file):
         LOGGER.error(f"Stats file not found: {stats_file}")
-        return ([], [])
+        if table_name == "all":
+            return [], [], []
+        return []
 
     LOGGER.info(f"Parsing ETLWatch stats report: {stats_file}")
 
     # data is a dictionary of tables from the stats file. It follows this structure:
     # Key: Table title
     # Value: List of dictionaries, where each dictionary represents a row in the table.
-    data = _parse_multi_table_csv(stats_file)
+    data = _parse_multi_table_csv(stats_file, col_name_map=col_name_map)
     LOGGER.info(f"Successfully parsed {len(data)} tables from stats report.")
 
-    # Get clock interrupts table from data (title containing "Clock Interrupts")
+    # Get tables from data
+    # titles containing "Clock Interrupts"
     clock_interrupts_table = next((v for k, v in data.items() if "Clock Interrupts" in k), [])
-    LOGGER.info(f"Clock interrupts table:\n{tabulate(clock_interrupts_table, headers='keys', tablefmt='grid')}")
-
-    # Get process lifetime table from data (title containing "Process Runtime by QOS")
+    # titles containing "Process Runtime by QOS"
     process_lifetime_table = next((v for k, v in data.items() if "Process Runtime by QOS" in k), [])
-    LOGGER.info(f"Process lifetime table:\n{tabulate(process_lifetime_table, headers='keys', tablefmt='grid')}")
-
-    # Get CPU lifetime table from data (title containing "Logical Processor (LP) Runtime by QOS")
+    # titles containing "Logical Processor (LP) Runtime by QOS"
     cpu_lifetime_table = next((v for k, v in data.items() if "Logical Processor (LP) Runtime by QOS" in k), [])
-    LOGGER.info(f"CPU lifetime table:\n{tabulate(cpu_lifetime_table, headers='keys', tablefmt='grid')}")
+
+    # Filter/Select which table to return
+    requested_table = table_name.lower()
     
-    return clock_interrupts_table, process_lifetime_table, cpu_lifetime_table
+    if requested_table == "clock interrupts":
+        LOGGER.info(f"Returning Clock interrupts table:\n{tabulate(clock_interrupts_table, headers='keys', tablefmt='grid')}")
+        return clock_interrupts_table
+    elif requested_table == "process lifetime":
+        LOGGER.info(f"Returning Process lifetime table:\n{tabulate(process_lifetime_table, headers='keys', tablefmt='grid')}")
+        return process_lifetime_table
+    elif requested_table == "cpu lifetime":
+        LOGGER.info(f"Returning CPU lifetime table:\n{tabulate(cpu_lifetime_table, headers='keys', tablefmt='grid')}")
+        return cpu_lifetime_table
+    elif requested_table == "all":
+        LOGGER.info(f"Returning all tables.")
+        LOGGER.debug(f"Clock interrupts table:\n{tabulate(clock_interrupts_table, headers='keys', tablefmt='grid')}")
+        LOGGER.debug(f"Process lifetime table:\n{tabulate(process_lifetime_table, headers='keys', tablefmt='grid')}")
+        LOGGER.debug(f"CPU lifetime table:\n{tabulate(cpu_lifetime_table, headers='keys', tablefmt='grid')}")
+        return clock_interrupts_table, process_lifetime_table, cpu_lifetime_table
+    else:
+        LOGGER.warning(f"Unknown table_name '{table_name}'. Defaulting to 'all'.")
+        return clock_interrupts_table, process_lifetime_table, cpu_lifetime_table
     
 
 # Create a function that exports process detailed stats data
