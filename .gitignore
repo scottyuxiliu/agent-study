@@ -205,3 +205,19 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# User-dependent data folders (keep folders, ignore contents)
+etl/*
+!etl/.gitkeep
+
+etlwatch/*
+!etlwatch/.gitkeep
+
+etlwatch_csv/*
+!etlwatch_csv/.gitkeep
+
+wpaexporter_csv/*
+!wpaexporter_csv/.gitkeep
+
+wpaexporter_profiles/*
+!wpaexporter_profiles/.gitkeep
