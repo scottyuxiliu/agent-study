@@ -49,9 +49,9 @@ class LogSpinner:
             self.thread.join()
 
 @tool
-def check_required_tools() -> bool:
+def check_prerequisites() -> bool:
     """
-    This tool checks if system has all required tools to parse ETL files. This includes the following:
+    This tool checks if system has all required tools/executables to parse ETL files. This includes the following:
     - wpr.exe: Windows Performance Recorder. This tool is used to record Event Log Traces (ETL) files.
     - wpaexporter.exe: Windows Performance Analyzer Exporter. This tool is used to export Event Log Traces (ETL) files to CSV format.
     - etlwatch.exe: ETLWatch. This tool is used to export Event Log Traces (ETL) files to CSV format.
@@ -154,23 +154,21 @@ def _check_etlwatch() -> bool:
     return False
 
 
-# Create a tool that uses wpaexporter.exe to export PPM settings and their values
-
-# @tool # Comment out this line for now to disable the tool
+@tool
 def export_ppm_data(
     etl_file_path: Annotated[str, 'ETL file path']
 ) -> list[dict]:
     """
-    This tool uses wpaexporter.exe to export:
-    - Processor Power Management (PPM) power profiles (https://learn.microsoft.com/en-us/windows-hardware/customize/power-settings/configure-processor-power-management-options#power-profiles)
+    This tool uses wpaexporter.exe to export ETL file to PPM table. This table contains the following information:
+    - Processor Power Management (PPM) power profiles. For more information, see https://learn.microsoft.com/en-us/windows-hardware/customize/power-settings/configure-processor-power-management-options#power-profiles
     - Power type, DC or AC
-    - Processor Power Management (PPM) settings and their values
+    - Processor Power Management (PPM) settings and their values. For more information, see https://learn.microsoft.com/en-us/windows-hardware/customize/power-settings/configure-processor-power-management-options#processor-power-management-settings
 
     Args:
         etl_file_path (str): Path to the ETL file
 
     Returns:
-        list[dict]: List of dictionaries containing Processor Power Management (PPM) power profiles, power type, and Processor Power Management (PPM) settings and their values
+        list[dict]: PPM table as a list of dictionaries containing Processor Power Management (PPM) power profiles, power type, and Processor Power Management (PPM) settings and their values
     """
     profilerundown_col_name_map = {
         'Field 1': 'ProfileName',
@@ -212,6 +210,14 @@ def export_ppm_data(
     
     csv_file_path = _get_csv_file_path(os.path.join("wpaexporter_csv", "profilesettingrundown"))
     profilesettingrundown_data.extend(_parse_single_table_csv(csv_file_path, group_by=None, col_name_map=profilesettingrundown_col_name_map))
+    
+    # Format SettingClass column: 0 -> Dense, 1 -> Classic
+    for row in profilesettingrundown_data:
+        if row.get('SettingClass') == '0':
+            row['SettingClass'] = 'Dense'
+        elif row.get('SettingClass') == '1':
+            row['SettingClass'] = 'Classic'
+
     LOGGER.debug(f"profilesettingrundown_data:\n")
     LOGGER.debug(tabulate(profilesettingrundown_data, headers='keys', tablefmt='grid'))
 
