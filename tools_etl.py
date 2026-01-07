@@ -485,30 +485,49 @@ def export_process_details():
 
 def _format_setting_value(val: str) -> str:
     """
-    Helper function to format setting values from a hex byte sequence to a single hex value.
+    Helper function to format setting values from a hex byte sequence to a single hex value or decimal.
     Input format: xxxxxxxx yy yy yy yy ...
-    - xxxxxxxx: number of bytes (ignored)
+    - xxxxxxxx: number of bytes (hex string)
     - yy: actual bytes in little-endian order (LSB first)
 
-    Example: "00000004 e8 03 00 00" -> "0x000003e8"
+    If byte count <= 4, converts to decimal. Otherwise, returns hex string.
+
+    Example: "00000004 e8 03 00 00" -> "1000"
+    Example: "00000001 64" -> "100"
+    Example: "00000040 41 14 0f 32 ..." -> "0x320f1441"
     """
     parts = val.split()
     if len(parts) < 2:
         return val
 
-    # parts[0] is the byte length, parts[1:] are the actual hex bytes
+    # parts[0] is the byte length in hex
+    try:
+        byte_count = int(parts[0], 16)
+    except ValueError:
+        byte_count = 0
+
+    # parts[1:] are the actual hex bytes
     data_bytes = parts[1:]
 
-    # Special case: if there are 40 bytes (or any long sequence), only look at the first 4 bytes
-    # per user request to handle specific PPM setting formats.
-    if len(data_bytes) > 4:
-        data_bytes = data_bytes[:4]
+    # Special case: handle specific PPM setting formats by looking only at the first 4 bytes if long
+    working_bytes = data_bytes[:4] if len(data_bytes) > 4 else data_bytes
 
     # Combine bytes from right to left (most significant byte at the highest index)
-    # The input sequence is e.g. [LSB, ..., MSB], so we reverse it to get [MSB, ..., LSB]
-    data_bytes.reverse()
+    # The input sequence is little-endian [LSB, ..., MSB]
+    working_bytes.reverse()
+    hex_val = "".join(working_bytes)
 
-    return "0x" + "".join(data_bytes)
+    if not hex_val:
+        return "0"
+
+    # Convert to decimal if 4 bytes or less, otherwise return hex
+    if byte_count <= 4:
+        try:
+            return str(int(hex_val, 16))
+        except ValueError:
+            return "0x" + hex_val
+    
+    return "0x" + hex_val
 
 
 def _format_process_name(val: str) -> str:
