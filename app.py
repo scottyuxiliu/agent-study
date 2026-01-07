@@ -33,7 +33,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from api_openai import get_available_models
 from tools_etl import check_prerequisites, export_ppm_data, export_processes_data, export_process_details
-from tools_general import add_numbers, is_even, check_weather
+from tools_general import add_numbers, is_even, check_weather, check_agent_state, check_workflow_history, set_graph_instance
 
 # Load API keys from .env file
 load_dotenv()
@@ -55,7 +55,9 @@ class AgentState(TypedDict):
 tools = [
     check_prerequisites,
     export_ppm_data,
-    export_processes_data
+    export_processes_data,
+    check_agent_state,
+    check_workflow_history
 ]
 tool_node = ToolNode(tools)
 
@@ -71,14 +73,22 @@ def call_llm(
 
     # Build a summary of what's in 'System Memory'
     memory_parts = []
-    if state.get("ppm_table"): memory_parts.append("- PPM table")
-    if state.get("clock_interrupts_table"): memory_parts.append("- Clock interrupts table")
-    if state.get("process_lifetime_table"): memory_parts.append("- Process lifetime table")
-    if state.get("cpu_lifetime_table"): memory_parts.append("- CPU lifetime table")
+    if state.get("ppm_table"): 
+        preview = str(state["ppm_table"][:2])
+        memory_parts.append(f"- PPM table (Preview: {preview}...)")
+    if state.get("clock_interrupts_table"): 
+        preview = str(state["clock_interrupts_table"][:2])
+        memory_parts.append(f"- Clock interrupts table (Preview: {preview}...)")
+    if state.get("process_lifetime_table"): 
+        preview = str(state["process_lifetime_table"][:2])
+        memory_parts.append(f"- Process lifetime table (Preview: {preview}...)")
+    if state.get("cpu_lifetime_table"): 
+        preview = str(state["cpu_lifetime_table"][:2])
+        memory_parts.append(f"- CPU lifetime table (Preview: {preview}...)")
 
     memory_info = ""
     if memory_parts:
-        memory_info = f"\n\n[SYSTEM MEMORY: The following tables are already loaded and available in the history for reference:\n" + "\n".join(memory_parts) + "\n]"
+        memory_info = f"\n\n[SYSTEM MEMORY: The following data tables are already loaded in memory:\n" + "\n".join(memory_parts) + "\nYou MUST use these tables if they contain the answer instead of re-running the extraction tools.]"
 
     # Add system instructions before the user message
     system_instructions = SystemMessage(
@@ -88,9 +98,12 @@ def call_llm(
             "1. ALWAYS explain your plan to the user in natural language BEFORE triggering any tool calls.\n"
             "2. If a user mentions a trace or performance issue, start by calling 'check_prerequisites'. State clearly: 'I'm first going to use the tool check_prerequisites to ensure clinical environment readiness.'\n"
             "3. For data export, explain WHY you are using that specific tool. (e.g., 'I will use export_ppm_data because it provides the specific frequency settings we need.')\n"
-            "4. If you are accessing data already present in the tables listed in [SYSTEM MEMORY], explicitly mention it. (e.g., 'I will now look at the PPM table in system memory to find FreqCap values.')\n"
-            "5. NEVER send a tool call without a preceding explanation in the same message.\n"
-            "6. If a file path is missing for an ETL tool, ask for the full path to the .etl file.\n"
+            "4. IMPORTANT: Before calling a tool, check [SYSTEM MEMORY] below. If the table you need is already loaded, DO NOT call the tool again. Use the data from the existing table instead.\n"
+            "   - 'export_ppm_data' produces the 'PPM table'.\n"
+            "   - 'export_processes_data' produces 'Clock interrupts', 'Process lifetime', and 'CPU lifetime' tables.\n"
+            "5. If you are accessing data already present in the tables listed in [SYSTEM MEMORY], explicitly mention it. (e.g., 'I will now look at the PPM table in system memory to find FreqCap values.')\n"
+            "6. NEVER send a tool call without a preceding explanation in the same message.\n"
+            "7. If a file path is missing for an ETL tool, ask for the full path to the .etl file.\n"
             f"{memory_info}"
         )
     )
@@ -182,6 +195,9 @@ memory = MemorySaver()
 # Compile the graph, passing in the memory saver
 app = workflow.compile(checkpointer=memory)
 
+# Give tools_general access to the compiled graph for history lookups
+set_graph_instance(app)
+
 @cl.set_starters
 async def set_starters():
     return [
@@ -217,8 +233,10 @@ async def main(message: str):
     # We delay sending the message until we actually have content to show
     has_sent_answer = False
 
-    # Configure the runnable to associate the conversation with the user's session
-    config: RunnableConfig = {'configurable': {'thread_id': cl.context.session.thread_id}}
+    # For testing persistence across page refreshes, we use a static thread ID.
+    # In production, you would use cl.context.session.thread_id to isolate user sessions.
+    # config: RunnableConfig = {'configurable': {'thread_id': cl.context.session.thread_id}}
+    config: RunnableConfig = {'configurable': {'thread_id': "static-test-thread"}} # Testing only
 
     # Run the graph and stream updates
     async for msg, metadata in app.astream(

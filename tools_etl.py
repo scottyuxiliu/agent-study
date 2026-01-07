@@ -123,19 +123,23 @@ def _get_etlwatch_exe_path() -> str:
     Private helper to find the latest version of ETLWatch.exe in the etlwatch folder.
     Returns the absolute path to the executable if found, otherwise an empty string.
     """
+    # First check if etlwatch folder exists under current working directory
     etlwatch_root = os.path.join(os.getcwd(), "etlwatch")
     if not os.path.exists(etlwatch_root):
         LOGGER.error(f"etlwatch folder not found at {etlwatch_root}")
         return ""
     
+    # Next check if any version folders exist under etlwatch folder
     version_folders = [f for f in os.listdir(etlwatch_root) if os.path.isdir(os.path.join(etlwatch_root, f)) and f.startswith("v")]
     if not version_folders:
         LOGGER.error("No version folders found in etlwatch folder")
         return ""
     
+    # Next find the latest version folder
     latest_version_folder = max(version_folders, key=lambda x: x[1:])
     etlwatch_exe = os.path.join(etlwatch_root, latest_version_folder, "ETLWatch.exe")
     
+    # Next check if ETLWatch.exe exists in the latest version folder
     if not os.path.exists(etlwatch_exe):
         LOGGER.error(f"ETLWatch.exe not found at {etlwatch_exe}")
         return ""
