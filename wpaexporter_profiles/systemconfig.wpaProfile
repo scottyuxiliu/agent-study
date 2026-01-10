@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WpaProfileContainer xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" Version="2" xmlns="http://tempuri.org/SerializableElement.xsd">
+  <Content xsi:type="WpaProfile2">
+    <Sessions>
+      <Session Index="0">
+        <FileReferences />
+      </Session>
+    </Sessions>
+    <Views>
+      <SysConfigView Guid="09f1e5dc-132b-4d8a-a3a8-35e4ec978948" IsVisible="true" SessionIndex="0" />
+    </Views>
+    <ModifiedGraphs />
+  </Content>
+</WpaProfileContainer>
